@@ -14,7 +14,2070 @@
     
     <script type="text/processing">
     
-      /*  INSERT CODE HERE */
+      //import ddf.minim.*;
+
+final String GUNSHOT="pistol.wav";
+final String FOOTSTEPS="footsteps.wav";
+
+Asset asset;
+Game game;
+
+//variables for audio
+//AudioPlayer song,gunshot,footsteps,sound; 
+
+//Minim minim; 
+
+void setup() { 
+  size(800, 600);
+  //minim = new Minim (this); 
+  ////song = minim.loadFile("Commando.mp3");
+  //gunshot= minim.loadFile(GUNSHOT);
+  //footsteps=minim.loadFile(FOOTSTEPS);
+ // song.loop();
+  asset = new Asset();
+  game = new Game();
+  game.start();
+}
+void draw() {
+  game.update();
+}
+void keyPressed() { 
+  game.keyDown();
+}
+void keyReleased() { 
+  game.keyUp();
+}
+
+//void playSound(String file) {
+  //AudioPlayer sound;
+  //if (file == GUNSHOT) sound = gunshot;
+  //else if(file==FOOTSTEPS) sound= footsteps;
+  
+  //sound.rewind(); //need to rewind to the begining
+  //sound.play();
+//}
+
+//Asset - class to load the images needed for the game
+
+class Asset {
+
+  String imgFolder = "Asset/";
+  ArrayList<PImage> img = new ArrayList<PImage>();
+
+  Asset() {
+    String[] asset = {
+      "Title.png", //0
+      //"tank.png", //1
+      "Commando.png", //1
+      "tank_turret.png", //2
+      "enemy.png", //3
+      "enemy_turret.png", //4
+      "Title1.png", //5
+      "Title2.png", //6 
+      "Title_.png", //7
+      "Tile/1.png", //8
+      "trigger.png", //9
+      "block.png", //10
+      "hudbox.png", //11
+      "hudcharge.png", //12
+      "hudsmallbox.png", //13
+      "boss.png", //14
+      "boss_turret.png" // 15
+    };
+
+    for (int i=0; i<asset.length; i++) {
+      img.add(loadImage(imgFolder + asset[i]));
+      //println("Loaded -> " + asset[i]);
+    }
+  }
+}
+
+//Boss class - Scripting
+
+class Boss extends Enemy {
+  HUD hud; //Reference variable to the hud instance
+  boolean intro; //Say something when the level starts
+  boolean phase1; //Set phase difficulty
+  boolean phase2; // ^
+  boolean phase3; // ^
+  boolean phase4; // ^
+  int ramCooldown; //Current ram cooldown time
+  boolean shake; //To shake or not to shake
+  PVector ramTo; //Position to ram to
+  int ramCD; //Ram cooldown
+  int dblProc; //Chance to double shoot
+  int fade; //Hold the fade animation numbers
+  State state; //Reference variable to the current state
+
+  //Class constructor
+  Boss(float x, float y, Camera obj, Player player, HUD hud, State s) { 
+    super(x, y, obj, null, player);
+    //Difficulty at start of battle
+    this.intro = false;
+    this.phase1 = false;
+    this.phase2 = false;
+    this.phase3 = false;
+    this.phase4 = false;
+    this.wSize = 100;
+    this.hSize = 100;
+    this.hud = hud;
+    this.health = 200;
+    this.aggroRadius = 400;
+    this.reload = 90;
+    this.weapon = 2;
+    this.chargeTime = 1;
+    this.ramCooldown = 300;
+    this.shake = false;
+    this.ramTo = null;
+    this.dblProc = 700;
+    this.ramCD = 800;
+    this.fade = 125;
+    this.state = s;
+  }
+
+  //isHit - overridden from Unit superclass so it can perform Boss specific actions
+  void isHit(Unit obj, int dmg) {
+
+    this.health -= dmg;
+    
+    //Shakes the boss if dead
+    if (this.health <= 0 && timer[5] == 0) timer[5] = 100;
+    this.timer[4] = 30;
+    //If boss is already in process of bouncing back from a previous  collision, return
+    //Otherwise does a new bounce back
+    if (this.timer[0] > 0 || this.timer[1] > 0 || this.timer[2] > 0) return;
+    this.move(obj.tvel.x*3, obj.tvel.y*3);
+    this.timer[2] = 10;
+    this.timer[0] = 0;
+
+
+    if (this.health <= 0) timer[5] = 150;
+    //Need a charged projectile to stop boss from ramming player
+    Projectile convert = (Projectile) obj;
+    if (convert.charge >= 100) {
+      //If boss is stuck in wall, dont cancel the ramming
+      if (this.timer[1] == 0) {
+        //Phase 3 - taunt when player try to cancel the shake
+        if (phase3 && timer[5] > 0) {
+          int randomSpeech = int(random(3));
+          if (randomSpeech == 0) hud.say1(new Dialogue(-2, "Boss", "I'm unstoppable!"));
+          if (randomSpeech == 1) hud.say1(new Dialogue(-2, "Boss", "Nothing can stop me!"));
+          if (randomSpeech == 2) hud.say1(new Dialogue(-2, "Boss", "You think that will stop me?!"));
+        }
+        else {
+          //Reset boss to normal behaviour
+          this.aggroRadius = 400;
+          this.ignoreWall = false;
+          this.moveSpeed = 1;
+          this.timer[5] = 0;
+        }
+      }
+    }
+  }
+
+
+  void update(ArrayList enemy) {
+    super.update();
+
+    //If boss is dead and already perform the shaking animation, remove and block current state
+    if (this.health <= 0 && timer[5] == 0) {
+      enemy.remove(this);
+      state.block = true;
+    }
+    
+    //Randomly reset cooldown to make it harder
+    if (int(random(this.dblProc)) == 0) {
+      timer[3] = 0; //Reset shooting cooldown
+    }
+    if (phase2) {
+      if (int(random(2000)) == 0) {
+        ramCooldown = 0; //Resets ramming cooldown
+      }
+    }
+    
+    //If intro speech has not been said yet
+    if (!intro) {
+      hud.say1(new Dialogue(-2, "Boss", "You are no match for me!"));
+      this.intro = true;
+    }
+
+    //Move to player if outside of aggro radius
+    if (this.moveSpeed == 1) {
+      //If regular speed (non ramming mode), seek to player
+      if (dist(this.pos.x, this.pos.y, player.pos.x, player.pos.y) > this.aggroRadius) {
+        PVector getDir = PVector.sub(player.pos, this.pos);
+        getDir.normalize();
+        this.move(getDir.x*this.moveSpeed, getDir.y*this.moveSpeed);
+      }
+    }
+    else {
+      //If ramming mode, go only to recorded position
+      if (ramTo != null) {
+        if (dist(this.pos.x, this.pos.y, ramTo.x, ramTo.y) > this.aggroRadius) {
+          PVector getDir = PVector.sub(ramTo, this.pos);
+
+          getDir.normalize();
+          this.move(getDir.x*this.moveSpeed, getDir.y*this.moveSpeed);
+        }
+        else {
+          //Reset boss to normal behaviour if it reached its ramming destination
+          this.aggroRadius = 400;
+          this.ignoreWall = false;
+          this.moveSpeed = 1;
+          this.timer[5] = 0;
+        }
+      }
+    }
+
+    if (this.health < 1850) {
+      //PHASE 1 - Shoots max charge projectiles
+      if (!phase1) {
+        hud.say1(new Dialogue(-2, "Boss", "Looks like I need more fire power!"));
+        timer[5] = 100;
+        this.reload = 80;
+        this.weapon = 4;
+        this.chargeTime = 100;
+        phase1 = true;
+      }
+    }
+
+    if (this.health < 1450) {
+      //PHASE 2 - Ram the player (goes through walls)
+      if (!phase2) {
+        hud.say1(new Dialogue(-2, "Boss", "You can't hide from me!"));
+        this.ramCooldown = 0;
+        phase2 = true;
+      }
+      if (this.ramCooldown == 0) {
+        timer[5] = 70;
+        this.aggroRadius = 10;
+        this.moveSpeed = 2;
+        this.ramCooldown = this.ramCD;
+        this.ramTo = null;
+      }
+      if (ramCooldown > 0) ramCooldown--;
+      //Record player pos after its almost done shaking to ram
+      if (moveSpeed == 2 && timer[5] == 15 && ramTo == null) {
+        this.ramTo = player.pos.get();
+        this.ignoreWall = true;
+      }
+    }
+
+    if (this.health < 950) {
+      //PHASE 3 - Spam projectiles at player, lower ram cooldown + lower shake time, higher chance of double shot and uncancellable ram
+      if (!phase3) {
+        hud.say1(new Dialogue(-2, "Boss", "Die!"));
+        phase3 = true;
+        timer[5] = 50;
+        this.reload = 55;
+        this.ramCD = 500;
+        this.dblProc = 500;
+      }
+      if (fade >= 255) fade = 125;
+      else fade += 5;
+    }
+
+    if (this.health < 200) {
+      //PHASE 4 - angrier version of phase 3
+      if (!phase4) {
+        hud.say1(new Dialogue(-2, "Boss", "!!!!!"));
+        timer[5] = 50;
+        this.phase4 = true;
+        this.reload = 20;
+        this.dblProc = 300;
+      }
+    }
+  }
+
+  void draw() {
+
+    if (phase3) tint(255, 100, 100, fade);
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    if (up) rotate(radians(0));
+    if (down) rotate(radians(180));
+    if (left) rotate(radians(-90));
+    if (right) rotate(radians(90));
+    image(asset.img.get(14), -50, -50);
+    popMatrix();
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    if (this.health > 0) rotate(atan2(player.pos.y - this.pos.y, player.pos.x - this.pos.x));
+    image(asset.img.get(15), -(wSize*2)/15, -hSize/4);
+    noTint();
+    popMatrix();
+    //Shows the HP bar temporary when it has been hit
+    if (timer[4] > 0) {
+      pushMatrix();
+      translate2(this.tpos.x, this.tpos.y);
+      fill(167, 35, 12);
+      rect(wSize/-2, -hSize/1.3, wSize, 10);  
+      fill(34, 177, 76);
+      if (this.health > 0 ) rect(wSize/-2, -hSize/1.3, wSize*(this.health/2000), 10);
+      popMatrix();
+    }
+  }
+}
+
+//Camera class - controls offset x and y for objects
+//Also does panning and focus on specific entity to follow its movement
+class Camera {
+  PVector pos, vel, acc;
+  Entity focus;
+  Entity toFocus;
+  boolean panning;
+  PVector mr;
+  PVector stopAt;
+  int count = 0;
+  ArrayList<Entity> queueItem;
+  Entity player;
+
+
+  Camera(float x, float y) {
+    this.pos = new PVector(x, y); 
+    this.vel = new PVector();
+    this.acc = new PVector();
+    this.mr = new PVector();
+    this.stopAt = new PVector();
+    this.queueItem = new ArrayList<Entity>();
+    panning = false;
+  }
+  
+  void setPlayer(Entity p) {
+    this.player = p;
+  }
+ 
+  
+  void move(float x, float y) {
+    acc.add(new PVector(x, y));
+  }
+
+  //Set camera to follow the object
+  void setFocus(Entity obj) {
+    if (focus != null) {
+      focus.tpos.set(focus.pos);
+    }
+    obj.tpos.sub(pos);
+    this.focus = obj;
+    vel.set(0, 0, 0);
+  }
+  
+  
+  void queue(Entity obj) {
+    this.queueItem.add(obj);
+  }
+  
+
+  //Pan camera to Entity
+  boolean goTo(Entity obj) {
+    if (panning) return false;
+    if (focus != null) {
+      focus.tpos.set(focus.pos);
+    }
+    focus = null;
+    toFocus = obj;
+    PVector mid = new PVector(width/2, height/2); 
+    PVector diff = PVector.sub(obj.tpos, mid);
+    PVector diff2 = PVector.sub(pos, diff);
+    stopAt.set(diff);
+    diff2.div(60);
+    mr.set(diff2);
+    panning = true;
+    return true;
+  }
+
+  //Centers onto object
+  void centerOn(Entity obj) {
+    setFocus(obj);
+    PVector mid = new PVector(width/2, height/2); 
+    PVector diff = PVector.sub(mid, obj.tpos);
+    obj.tpos.add(diff);
+    pos.sub(diff);
+  }
+
+  PVector getPos() {
+    return pos;
+  }
+  PVector getVel() {
+    return vel;
+  }
+  
+  void focusPlayer() {
+    centerOn(player);
+  }
+
+  boolean ifFocus(Entity obj) {
+    if (obj == this.focus) {
+      return true;
+    }
+    return false;
+  }
+
+  void update() {
+    if (!panning & queueItem.size() <= 0 && this.focus != player) goTo(player);
+    if(!panning && queueItem.size() > 0) goTo(queueItem.get(0));
+    if (panning) {
+      count++;
+      if (count == 60) {
+        count = 0;
+        panning = false;
+        if (queueItem.size() > 0) queueItem.remove(0);
+        setFocus(toFocus);
+      }
+      else {
+        pos.add(new PVector(-mr.x, -mr.y ));
+      }
+    }
+
+    vel.add(acc); 
+    vel.mult(0.8);
+    pos.add(vel);
+    acc.set(0, 0, 0);
+  }
+}
+
+//Enemy class to describe the basic enemy
+class Enemy extends Unit {
+  ArrayList<int[]> pathing = new ArrayList<int[]>(); //Where it will move to
+  int currentPath; //Its current path location
+  boolean dir; //Which direction (going forward on its path or go back)
+  boolean moving; //If its currently moving
+  PVector toMove; //How much left to move
+  int moveamount; //How much will it be able to move
+  int aggroRadius; //The radius where it can shoot the player
+  int reload; //Reload time
+  int dmg; //Damage it does when it touches player
+  int chargeTime; //Its charge time for bullets
+  boolean targetPlayer; //If it is currently targeting the player within its aggro radius
+  Player player; //Reference variable to the player
+
+  Enemy(float x, float y, Camera obj, ArrayList pathing, Player player) { 
+    super(x, y, obj);
+    if (pathing != null) {
+      this.pathing = pathing;
+    }
+    this.currentPath = -1;
+    this.dir = false;
+    this.moving = false;
+    this.moveamount = 0;
+    this.toMove = new PVector();
+    this.moveSpeed = 1;
+    this.player = player;
+    this.aggroRadius = 250;
+    this.reload = 100;
+    this.targetPlayer = false;
+    this.health = 100;
+    this.weapon = 2;
+    this.dmg = 10;
+    this.chargeTime = 1;
+  }
+
+  //Constantly check if it needs to move to the next path destination and whether or not its dead
+  void update(ArrayList enemy) {
+ 
+    if (this.health <= 0 && timer[5] == 0) enemy.remove(this);
+   
+    else {
+      super.update();
+      if (moveamount > 0) {
+        move(-toMove.x/2, -toMove.y/2);
+        moveamount -= 1;
+      }
+      else {
+        if (currentPath == pathing.size()-1) dir = true;
+        if (currentPath == 0) dir = false;
+        if (dir) currentPath -= 1;
+        else currentPath += 1;
+        int[] nextXY = pathing.get(currentPath);
+        toMove = PVector.sub(tpos, new PVector(nextXY[0]*50, nextXY[1]*50));
+        moveamount =  50;
+        toMove.div(moveamount);
+        moving = true;
+      }
+    }
+  }
+
+  //If it is hit, decrease health
+  void isHit(Unit obj, int damage) {
+    this.health -= damage;
+    if (this.health <= 0 && timer[5] == 0) timer[5] = 50;
+    this.timer[4] = 30;
+
+    if (this.timer[0] > 0 || this.timer[1] > 0 || this.timer[2] > 0) return;
+    this.move(obj.tvel.x*3, obj.tvel.y*3);
+
+    this.timer[2] = 10;
+    this.timer[0] = 0;
+    this.timer[1] = 0;
+   
+    
+  }
+
+  //Draws the aggro radius circle
+  void aggroDraw() {
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    fill(0, 0, 0, 50);
+    ellipse(0, 0, aggroRadius*2, aggroRadius*2); 
+    popMatrix();
+  }
+
+
+  void draw() { 
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    if (up) rotate(radians(0));
+    if (down) rotate(radians(180));
+    if (left) rotate(radians(-90));
+    if (right) rotate(radians(90));
+    image(asset.img.get(3), -25, -35);
+    popMatrix();
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    if (targetPlayer && this.health > 0) rotate(atan2(player.pos.y - this.pos.y, player.pos.x - this.pos.x));
+    image(asset.img.get(4), -(wSize*3)/15, -hSize/6);
+    popMatrix();
+
+    if (timer[4] > 0) {
+      pushMatrix();
+      translate2(this.tpos.x, this.tpos.y);
+      fill(167, 35, 12);
+      rect(wSize/-2, -hSize/1.3, wSize, 10);  
+      fill(34, 177, 76);
+      if (this.health > 0 ) rect(wSize/-2, -hSize/1.3, wSize*(this.health/100), 10);
+      popMatrix();
+    }
+  }
+
+  //Checks if player is within the circle
+  boolean detectAggro(Unit obj) {
+    if (dist(pos.x, pos.y, obj.pos.x, obj.pos.y) < aggroRadius + 25) {
+      targetPlayer = true;
+      return true;
+    }
+    targetPlayer = false;
+    return false; //no collision
+  }
+}
+
+class Entity {
+
+  PVector pos, tpos; //pos - used as a TRUE position, tpos used as temporary position in case current entity is the camera's focus
+  float wSize, hSize; //Unit width/height size for collision checks
+  boolean ignoreWall; //True to walk through walls
+  Camera camera; //Reference variable to the camera (needed to determine exact location)
+  int[] timer = new int[6]; //Timers to countdown (0 - unit collision timer, 1 - wall collision timer, 3 - reload timer, 4 - cooldown for taking damage, 5 - shake timer
+
+  //Default settings for ALL entity (does not include walls)
+  Entity(float x, float y, Camera obj) {
+    this.pos = new PVector(x, y);
+    this.tpos = new PVector(x, y);
+    this.camera = obj;
+    this.ignoreWall = false;
+  } 
+
+  //If any timers are >0, begin counting down
+  void update() {
+    for (int i=0; i<timer.length; i++) {
+      if (timer[i] > 0) timer[i] -= 1;
+    }
+  }
+
+  //This translate version takes into account of the camera's focus and whether or not it needed the offset added
+  void translate2(float x, float y) {
+    if (camera.ifFocus(this)) {
+      translate(x, y);
+    }
+    else {
+      PVector cp = camera.getPos();
+      translate(x - cp.x, y - cp.y);
+    }
+  }
+
+  //Returns true if Entity touches wall, 6 different points of the Entity is checked against the map to see if it's touching a wall
+  boolean detectBlock(int[][] mapc) { //Parameter is the collision map
+    if (ignoreWall) return false;
+
+    int x = floor((this.pos.x+this.wSize/2)/50);
+    int y = floor((this.pos.y+this.hSize/2)/50);
+    int x2 = floor((this.pos.x-this.wSize/2)/50);
+    int y2 = floor((this.pos.y-this.hSize/2)/50);
+    int y3 = floor((this.pos.y)/50); 
+
+    if (mapc[y][x] > 0 || mapc[y2][x2] > 0 || mapc[y][x2] > 0 || mapc[y2][x] > 0 || mapc[y3][x] > 0 || mapc[y3][x2] > 0 ) {
+      return true;
+    }  
+
+    return false;
+  }
+
+  
+  //Check if unit is touching another unit (code from the class website notes)
+  boolean detectCollision(Entity obj) {
+    if (abs(this.pos.x - obj.pos.x) < this.wSize/2 + obj.wSize/2 &&
+      abs(this.pos.y - obj.pos.y) < this.hSize/2 + obj.hSize/2) {
+      return true; //collision
+    }
+    return false; //no collision
+  }
+  
+  //Declared so camera can call this on any Entity
+  void move(float x, float y) { }
+  
+}
+
+//Game class to manage the states
+class Game { 
+
+  int fullWidth = 800;
+  int fullHeight = 600;
+  int fade; //Fade in when state changes
+ 
+
+  ArrayList<State> gameState = new ArrayList<State>(); //Holds the states
+  State cState; //Current state
+  Game() {
+    fade = 0;
+  }
+
+  void start() {    
+    //size(fullWidth, fullHeight);
+    //Preload the font so game doesn't stutter when it first appears in the middle of the game
+    text("", 0, 0);
+
+    //gameState.add(new Title());
+    
+    gameState.add(new Playing(0));
+    gameState.add(new Playing(1));
+    gameState.add(new Playing(2));
+    gameState.add(new Gameover());
+    cState = gameState.get(0);
+    cState.start();
+  }
+
+  void update() { 
+    //If state is blocked, remove and go to the next state
+    if (cState.isBlocked()) {
+      fade = 255;
+      gameState.remove(cState);
+      cState = gameState.get(0);
+      cState.start();
+    }
+    cState.update();
+    if (fade != 0 ) {
+      fill(0, 0, 0, fade);
+      rect(0, 0, width, height);
+    }
+    if (fade > 0) fade -= 5;
+  }
+
+ 
+
+  void keyDown() { 
+    cState.keyDown();
+  }
+  void keyUp() { 
+    cState.keyUp();
+  }
+}
+
+//HUD class to manage the dialogue boxes, status/charge/weapon boxes
+
+class HUD {
+
+  int timer; //Timer for the current message
+  Player player; //Reference variable to the player
+  ArrayList<Dialogue> dialogue; //List of messages (Dialogue instances)
+  Dialogue current; //Current instance of dialogue to show
+  boolean messageBox; //Whether or not message box needs to be shown
+  Camera camera; //Reference variable to the camera
+  int meterFlicker; //Charge meter flicker animation
+ 
+
+  HUD(Camera c, Player p) {
+    camera = c;
+    messageBox = false;
+    timer = 0;
+    meterFlicker = 0;
+    dialogue = new ArrayList<Dialogue>();
+    if (p != null) this.player = p;
+    else this.player = null;
+  }
+
+//Say 1 message (Had to use a different method name because overloading this didnt work in javascript mode)
+  void say1(Dialogue a) {
+    dialogue.clear();
+    timer = 0;
+    dialogue.add(a);
+  }
+//Say a list of message
+  void say(ArrayList d) {
+    dialogue.clear();
+    timer = 0;
+    dialogue.addAll(d);
+  }
+
+  void closeMsgBox() {
+    this.messageBox = false;
+  }
+//Intercepts enter keydown to check if it's meant to skip to the next message or close message box if there is no next message
+  boolean interceptEnter() {
+    if (camera != null) {
+      if (camera.panning) {
+        camera.panning = false;
+        camera.focusPlayer();
+        if (camera.queueItem.size() > 0) camera.queueItem.clear();
+      }
+    }
+
+    if (messageBox) {
+      if (current.timer == -2) return false;
+      timer = 0;
+      return true;
+    }
+    return false;
+  }
+
+
+
+  void draw() {
+    if (player != null) {
+      if (player.health > 0) {
+        drawStatus();
+        if (player.chargeTime > 30)drawCharge();
+        drawWeapon();
+      }
+    }
+
+
+    if (messageBox) drawMsgBox();
+  }
+
+
+
+  void drawWeapon() {
+    textSize(16);
+    if (player.weapon == 0) {
+      pushMatrix();
+      translate(width-88, height-75);
+      image(asset.img.get(13), 0, 0, 63, 63);
+      fill(255, 100, 100);
+      text("PUSH", 8, 35);
+      popMatrix();
+    }
+    else {
+      pushMatrix();
+      translate(width-88, height-153);
+      image(asset.img.get(13), 0, 0, 63, 63);
+      fill(100, 100, 255);
+      text("PULL", 12, 35);
+      popMatrix();
+    }
+  }
+
+
+  void drawCharge() { //Reload charge for the Push/Pull Attack
+
+    pushMatrix();
+    translate(width/2-101, height-75);
+
+    if (player.chargeTime >= 100) {
+      if (meterFlicker < 255) {
+        tint(255, meterFlicker);
+        meterFlicker += 15;
+      }
+      if (meterFlicker >= 255) { 
+        meterFlicker = 0;
+      }
+    }
+
+    image(asset.img.get(12), 0, 0, 203, 63);
+    fill(0, 0, 0);
+    rect(25, 23, 155, 13);
+    if (player.chargeTime >= 100) fill(77, 134, 180, meterFlicker);
+    else fill(#14EEF7);
+    rect(25, 23, 155*(float(player.chargeTime)/100), 13);
+    noTint();
+    popMatrix();
+  }
+
+
+
+  void drawStatus() {
+    pushMatrix();
+    translate(25, height-75);
+    image(asset.img.get(11), 0, 0, 203, 63);
+    //Black background
+    fill(0, 0, 0);
+    rect(35, 13, 140, 13);
+    rect(35, 34, 140, 13);
+    //Health meter
+    fill(#37BC3C);
+    float hp = 140*(player.health/500);
+    if ( hp >= 0) rect(35, 13, hp, 13);
+    //Reload meter
+    fill(#EDA81D);
+    rect(35, 34, (140*(1-(player.timer[3]/float(player.reload)))), 13);
+    popMatrix();
+  }
+
+
+  void drawMsgBox() {
+
+    //Dialogue box
+    pushMatrix();
+    translate(width/2, 500);
+    fill(46, 81, 120, 122);
+    noStroke();
+    rect(-700/2, -150/2, 700, 150);
+    fill(255, 255, 255);
+    textSize(21);
+    text(current.text, -700/2 + 25, -150/2 + 30, 650, 100);
+    popMatrix();
+
+    if (current.author != null) {
+      pushMatrix();
+      translate((width/2)-270, 500-70);
+      fill(56, 56, 56);
+      noStroke();
+      rect(-60, -20, 120, 40);
+      fill(255, 255, 255);
+      textSize(21);
+      textAlign(CENTER);
+      text(current.author, -60, -10, 120, 40);
+      textAlign(LEFT);
+      popMatrix();
+    }
+  }
+
+//Count down current message timer, goes to next message if exists, if not = close message box
+  void update() {
+    if (dialogue.size() > 0 ) {
+      if (timer == 0) {
+        dialogue.remove(current);
+        if (dialogue.size() > 0) {
+          current = dialogue.get(0);
+          if (current.timer != -2) timer += current.timer;
+          else timer = 240;
+        }
+      }
+      else messageBox = true;
+      if (timer > 0) timer--;
+    }
+    else closeMsgBox();
+    draw();
+  }
+}
+
+
+//Small class to describe Dialogue (the time it is to be shown, author, the text)
+
+class Dialogue {
+
+  int timer;
+  String author;
+  String text;
+
+  Dialogue(int t, String a, String text) {
+    this.timer = t;
+    this.author = a;
+    this.text = text;
+  }
+}
+
+//The arrays here makes up the game
+
+
+int[][][] level = {
+  //Level 1
+
+  {/* 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 */
+/*0*/    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+/*1*/    {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0}, 
+/*2*/    {0, 1, -5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*3*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*4*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*5*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*6*/    {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0}, 
+/*7*/    {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0}, 
+/*8*/    {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0}, 
+/*9*/    {0, 1, 1, 1, 1, 3, 3, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*10*/   {0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0}, 
+/*11*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0}, 
+/*12*/   {0, 1, 1, 1, 1, 0, 0, 0, 1, 0, -3, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0}, 
+/*13*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0}, 
+/*14*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0}, 
+/*15*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, -6, 0, 0, 6, 0, 0, 1, 0}, 
+/*16*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 6, 0, 0, 1, 0}, 
+/*17*/   {0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0}, 
+/*18*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0}, 
+/*19*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0}, 
+/*20*/   {0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, -4, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0}, 
+/*21*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0}, 
+/*22*/   {0, 1, 1, 0,0, 0, 0, 0, 0, -99, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}, 
+/*23*/   {0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}, 
+/*24*/   {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0}, 
+/*25*/   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0}, 
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+  }, 
+
+  //Level 2
+
+  {/* 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 */
+/*0*/    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+/*1*/    {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0}, 
+/*2*/    {0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, -4, 0, 0, 0, 1, 0}, 
+/*3*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*4*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*5*/    {0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*6*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*7*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*8*/    {0, 1, 0, 0, 0, 0, -99, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0}, 
+/*9*/    {0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 4, 4, 1, 0}, 
+/*10*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0}, 
+/*11*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0}, 
+/*12*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0}, 
+/*13*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0}, 
+/*14*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0}, 
+/*15*/    {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0}, 
+/*16*/    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0}, 
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+  }, 
+
+//Level 3 // The one where the president is kidnapped.
+  {/* 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 */
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+         {0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0}, 
+/*1*/    {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0}, 
+/*2*/    {0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0}, 
+/*3*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*4*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*5*/    {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*6*/    {0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*7*/    {0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*8*/    {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*9*/    {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, 
+/*10*/   {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*11*/   {0, 1,0,-99,1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, 
+/*12*/   {0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0}, 
+/*13*/   {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0}, 
+         {0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0}, 
+         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+  }, 
+
+
+};
+
+int[][][][] pathing = {
+  {
+    { {5, 3}, {5, 4}, {5, 5}, {5, 6}, {4, 7} }, 
+    { {7, 3}, {7, 4}, {7, 5} }, 
+    { {9, 3}, {9, 4}, {9, 5}, {10, 5}, {10, 4} }, 
+    { {23, 9}, {23, 10}, {23, 11}, {23, 12}, {23, 13} }, 
+    { {19, 17}, {19, 18}, {19, 19}, {19, 20}, {19, 21}, {19, 22} }
+  }, 
+  { 
+    //{ {4,13}, {5,13}, {6,13}, {7,13} },
+    { {4, 13}, {5, 13}, {6, 13}, {7, 13} }
+  }, 
+  {
+  }
+};
+
+int[][][] cubes = {
+  {
+    {11, 14}, 
+    {14, 20}, 
+    {8, 8},
+    {22,17}
+  }, 
+  {
+    {8, 3}, 
+  }, 
+  {
+    {10, 8}, 
+
+    {11, 9}
+
+  }
+  , 
+
+};
+
+int[][] bosschart = {
+  {}, 
+  {}, 
+  {14, 8}
+};
+
+
+int[][][] portal = {
+  { 
+    {26, 18}, 
+    {3, 16}
+  }, 
+  {
+    {14, 15}
+  }, 
+  {
+  }
+};
+
+//Map class that generates the blocks and non unit collision
+
+class Map {
+
+  int tileW = 50;
+  int tileH = 50;
+  int fullWidth, fullHeight;
+  int[][][] level;
+  int stage;
+  Camera camera;
+  String tileFolder = "Asset/Tile/";
+  ArrayList<PImage> img = new ArrayList<PImage>();
+
+  Map(int[][][] level, int w, int h, Camera obj, int stage) {
+    this.fullWidth = w;
+    this.fullHeight = h;
+    this.camera = obj;
+    this.level = level;
+    this.stage = stage;
+  }
+
+  int[][] getCollision() {
+    return level[this.stage];
+  }
+
+  PVector getPlayerSpawn() {
+    PVector spawnXY = new PVector(0, 0);
+    for (int i=0; i<level[stage].length; i++) {
+      for (int u=0; u<level[stage][i].length; u++) {
+        if (level[stage][i][u] == -99) {
+          spawnXY.set(u, i, 0);
+        }
+      }
+    }
+    return spawnXY;
+  }
+
+  boolean bossExist(int[][] bosschart) {
+    if (bosschart[stage].length != 0) {
+      return true;
+    }
+    return false;
+  }
+
+
+  Boss loadBoss(int[][] bosschart, HUD hud, Player player, State s) {
+
+    Boss b = new Boss(bosschart[stage][0], bosschart[stage][1], camera, player, hud, s);
+
+    return b;
+  }
+
+  ArrayList loadPortal(State state) {
+    ArrayList<Portal> portals = new ArrayList<Portal>();
+    if (stage > portal.length ) return portals;
+    for (int i=0; i<portal[stage].length; i++) {
+      portals.add(new Portal(portal[stage][i][0], portal[stage][i][1], this.camera, state));
+    }  
+    return portals;
+  }
+
+
+  ArrayList loadCube() {
+
+    ArrayList<Cube> cube = new ArrayList<Cube>();
+    if (stage > cubes.length-1) return cube;
+    for (int i=0; i<cubes[stage].length; i++) {
+      cube.add(new Cube(cubes[stage][i][0], cubes[stage][i][1], this.camera));
+    }  
+    return cube;
+  }
+
+  ArrayList loadEnemy(int[][][][] p, Player player) {
+
+    ArrayList<Enemy> enemy = new ArrayList<Enemy>();
+    if (stage > pathing.length-1) return enemy;
+    int[][][] enemies = p[stage];
+
+    for (int i=0; i<enemies.length; i++) {
+      ArrayList<int[]> enemypath = new ArrayList<int[]>();
+      for (int u=0; u<enemies[i].length; u++) {
+        int spawnX = enemies[i][0][0];
+        int spawnY = enemies[i][0][1];
+        enemypath.add(enemies[i][u]);
+      }
+      enemy.add(new Enemy(enemies[i][0][0], enemies[i][0][1], camera, enemypath, player));
+    }
+
+    return enemy;
+  }
+
+
+
+  ArrayList loadWidget(HUD hud) {
+    ArrayList<Widget> widget = new ArrayList<Widget>(); 
+    int cSearch; 
+    ArrayList<Door> doors = new ArrayList<Door>();
+    ArrayList<Integer> done = new ArrayList<Integer>();  
+    boolean go = true; 
+    int addCount;
+
+    while (go) {
+      addCount = 0;
+      cSearch = 0;
+      for (int i=0; i<level[stage].length; i++) {
+        for (int u=0; u<level[stage][i].length; u++) {
+          if (cSearch == 0 && level[stage][i][u] > 2 && level[stage][i][u] != -99) {
+            cSearch = level[stage][i][u];
+            for (int d=0; d<done.size(); d++) {
+              if (done.get(d) == cSearch) cSearch = 0;
+            }
+          }
+          if (cSearch == level[stage][i][u] && cSearch != 0) {
+            doors.add(new Door(u, i, camera, hud, stage));
+            addCount += 1;
+          }
+        }
+      }
+      if (cSearch != 0) {
+        int triggerNum = cSearch * -1;
+        for (int i=0; i<level[stage].length; i++) {
+          for (int u=0; u<level[stage][i].length; u++) {
+            if (level[stage][i][u] == triggerNum) {
+              widget.add(new Trigger(u, i, camera, doors, hud));
+            }
+          }
+        }
+      }
+      done.add(cSearch);
+      widget.addAll(doors);
+      doors.clear();
+      if (addCount == 0) go = false;
+    }
+    return widget;
+  }
+
+
+  boolean loadAsset() {
+    String[] asset = {
+      "0.png"
+    };
+    for (int i=0; i<asset.length; i++) {
+      img.add(loadImage(tileFolder + asset[i]));
+      //println("Loaded -> " + asset[i]);
+    }
+    return true;
+  }
+
+
+
+  void draw() {
+    int l = this.stage;
+    int xPos, yPos, cX, cY, oX, oY;
+    cX = abs(floor(camera.pos.x/tileW));
+    cY = abs(floor(camera.pos.y/tileH));
+    oX = abs(ceil((camera.pos.x+fullWidth)/tileW));
+    oY = abs(ceil((camera.pos.y+fullHeight)/tileH));
+    if (camera.pos.x < 0) cX = 0;
+    if (camera.pos.y < 0) cY = 0;
+    if (cY+oY > level[l].length) oY = level[l].length;
+    if (cX+oX > level[l][0].length) oX = level[l][0].length;
+
+    yPos = cY * 50;
+    for (int i=cY; i<oY; i++) {
+      xPos = cX * 50;
+      for (int u=cX; u<oX; u++) {
+        if (level[l][i][u] == 1) {
+          pushMatrix();
+          translate(xPos - camera.pos.x, yPos - camera.pos.y  );
+          fill(255, 53, 62);
+          noStroke();
+          image(img.get(0), 0, 0);
+          popMatrix();
+        }
+
+        if (level[l][i][u] > 0) {
+          if (level[l][i][u+1] <= 0) {
+            pushMatrix();
+            translate(xPos+tileW - camera.pos.x, yPos - camera.pos.y  );
+            fill(0, 0, 0, 127);
+            noStroke();
+            rect(0, 0, 10, tileH); 
+            popMatrix();
+            if (level[l][i+1][u+1] <= 0 && level[l][i+1][u] <= 0 ) {
+              pushMatrix();
+              translate(xPos+tileW - camera.pos.x, yPos+tileH - camera.pos.y  );
+              fill(0, 0, 0, 127);
+              noStroke();
+              //rect(0, 0, 10, 10); 
+              popMatrix();
+            }
+          }
+          if (level[l][i+1][u] <= 0) {
+            pushMatrix();
+            translate(xPos - camera.pos.x, yPos+tileH - camera.pos.y  );
+            fill(0, 0, 0, 127);
+            noStroke();
+            rect(0, 0, tileW, 10); 
+            popMatrix();
+          }
+        }
+
+        xPos += 50;
+      }
+      yPos += 50;
+    }
+  }
+}
+
+//Player class to describe the player (you)
+class Player extends Unit {
+  boolean hitAnimate; //If you are hit, does the fade blinking
+  int fade; //Hold the animation number
+  int reload; //Reload
+  int chargeTime; //The time you charged
+  boolean dead; 
+
+
+  Player(PVector spawn, Camera obj) { 
+    super(spawn.x, spawn.y, obj);
+    this.moveSpeed = 1;
+    this.fade = 0;
+    this.health = 500;
+    this.reload = 20;
+    this.chargeTime = 0;
+  }
+
+  //Increase charge time (used from the key down event)
+  void charge() {
+    if (chargeTime < 100) chargeTime += 2;
+  }
+
+  void isHit(Unit obj, int damage) {
+    
+    if (timer[4] > 0) return;
+    this.health -= damage;
+    if (this.health <= 0 && timer[5] == 0 && !dead) timer[5] = 100;
+    timer[4] = 25;
+    if (!hitAnimate) {
+      hitAnimate = true;
+      fade = 0;
+    }
+  }
+
+  void draw() { 
+    if (this.health <= 0 && timer[5] == 0) dead = true;
+    if (dead) return;
+
+    if (hitAnimate) {
+      if (fade%10 == 0) tint(255, 255);
+      else tint(255, 127);
+      fade += 5;
+    }
+    if (fade == 255) {
+      fade = 0;
+      hitAnimate = false;
+    }
+
+
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    rotate(atan2(mouseY - this.tpos.y, mouseX - this.tpos.x));
+    //
+    fill(255,0,0,60);
+    rect(40,-3,60,2);
+    image(asset.img.get(1),-25,-35 );
+    //-(wSize*3)/15, -hSize/6
+    noTint();
+    popMatrix();
+  }
+}
+
+class Playing extends State {
+
+  boolean up, down, left, right, space;
+  Camera camera;
+  Player player;
+  Map map;
+  int[][] mapc;
+  HUD hud;
+  ArrayList<Widget> widget;
+  ArrayList<Cube> cube;
+  ArrayList<Unit> unit;
+  ArrayList<Enemy> enemy;
+  ArrayList<Projectile> playerProjectile;
+  ArrayList<Projectile> enemyProjectile;
+  ArrayList<Portal> portal;
+  int stage;
+  int currentWeap;
+
+
+  Playing(int stage) { 
+
+    enemy = new ArrayList<Enemy>();
+    widget = new ArrayList<Widget>();
+    cube = new ArrayList<Cube>();
+    portal = new ArrayList<Portal>();
+    playerProjectile = new ArrayList<Projectile>();
+    enemyProjectile = new ArrayList<Projectile>();
+    this.stage = stage;
+  } 
+
+  void start() {
+    camera = new Camera(-350, -350);  
+    map = new Map(level, width, height, this.camera, stage);
+    map.loadAsset();
+    mapc = map.getCollision();
+    player = new Player(map.getPlayerSpawn(), this.camera);
+    hud = new HUD(camera, player); 
+    camera.setPlayer(player);
+    widget.addAll(map.loadWidget(hud));
+    enemy.addAll(map.loadEnemy(pathing, player));
+
+    if (map.bossExist(bosschart)) enemy.add(map.loadBoss(bosschart, hud, player, this));
+
+    cube.addAll(map.loadCube());
+    widget.addAll(map.loadPortal(this));
+  }
+
+
+  //Checks if object is within screen region
+  boolean inScreen(Entity obj) {
+    if ((obj.tpos.x-obj.wSize/2)-camera.pos.x < width && (obj.tpos.x+obj.wSize/2)-camera.pos.x > 0
+      &&  (obj.tpos.y-obj.hSize/2)-camera.pos.y < height && (obj.tpos.y+obj.hSize/2)-camera.pos.y > 0
+      ||  camera.ifFocus(obj)) return true;
+    return false;
+  }
+
+
+
+  void update() { 
+    background(#1F5F45);
+
+    //Draw enemy agro radius first
+    for (int i=0; i<enemy.size(); i++) {
+      Enemy e = enemy.get(i);
+      if (inScreen(e)) e.aggroDraw();
+    }
+    map.draw();
+
+    //Widget to player and cube
+    for (int h=0; h<widget.size(); h++) {
+      Widget w = widget.get(h); 
+      w.resolveCollision(player.detectCollision(w));
+      for (int i=0; i<cube.size(); i++) {
+        Cube c = cube.get(i);
+        w.resolveCollision(c.detectCollision(w), c);
+      }
+      if (!isPaused()) w.update();
+      if (inScreen(w)) w.draw();
+    }
+
+
+    //Cube to wall & player
+    for (int i=0; i<cube.size(); i++) {
+      Cube c = cube.get(i);
+      if (c.detectBlock(mapc)) c.resolveBlock();
+      if (c.detectCollision(player)) c.resolveCollision(player);
+      if (!isPaused()) c.update();
+      if (inScreen(c)) c.draw();
+    }
+
+    //Enemy to wall & Player
+    for (int i=0; i<enemy.size(); i++) {
+      Enemy e = enemy.get(i);
+      if (e.detectCollision(player)) player.isHit(e, e.dmg);
+      if (e.detectAggro(player)) e.shoot(player.pos.x, player.pos.y, e.chargeTime, 10, e.reload, enemyProjectile);
+      if (e.detectBlock(mapc)) e.resolveBlock();
+      if (!isPaused()) e.update(enemy);
+      if (inScreen(e)) e.draw();
+    }
+
+
+
+
+
+
+    //Player projectile to enemy + cube
+    for (int i=0; i<playerProjectile.size(); i++) { 
+      Projectile cc = playerProjectile.get(i);
+      if (cc.detectBlock(mapc)) cc.resolveBlock(playerProjectile);
+      for (int h=0; h<cube.size(); h++) {
+        Cube c = cube.get(h);
+        if (cc.detectCollision(c)) cc.resolveCollision(c, playerProjectile);
+      }
+      for (int u=0; u<enemy.size(); u++) {
+        Enemy e = enemy.get(u);
+        if (cc.detectCollision(e)) cc.resolveCollision(e, playerProjectile);
+      }
+      if (!isPaused()) cc.update(); 
+      if (inScreen(cc)) cc.draw();
+    }
+    //Enemy projectile to player & cube
+    for (int i=0; i<enemyProjectile.size(); i++) {
+      Projectile ee = enemyProjectile.get(i);
+      if (ee.detectBlock(mapc)) ee.resolveBlock(enemyProjectile);
+      if (ee.detectCollision(player)) ee.resolveCollision(player, enemyProjectile);
+      for (int u=0; u<cube.size(); u++) {
+        Cube c = cube.get(u);
+        if (ee.detectCollision(c)) enemyProjectile.remove(ee);
+      }
+
+      if (!isPaused()) ee.update();
+      if (inScreen(ee)) ee.draw();
+    }
+
+    //Player to wall
+    if (player.detectBlock(mapc)) {
+      player.resolveBlock();
+      player.chargeTime = 0;
+    }
+    if (!isPaused()) player.update(); 
+    if (inScreen(player)) player.draw();
+
+
+    /**********/
+    if (!isPaused()) {
+      camera.update();
+      hud.update();
+      if (camera.focus != null) {  
+        if (up) camera.focus.move(0, -1); 
+        if (down) camera.focus.move(0, 1); 
+        if (left) camera.focus.move(-1, 0); 
+        if (right) camera.focus.move(1, 0);
+        if (space) player.charge();
+      }
+    } else {
+      //Paused screen
+      fill(0, 0, 0, 127);
+      rect(0, 0, width, height);
+      textAlign(CENTER);
+      fill(255, 255, 255);
+      if (player.health > 0) text("Paused", width/2, height/2);
+      textAlign(LEFT);
+    }
+    //Player dead
+    if (player.health <= 0 && !isPaused()) {
+      this.pause = true;
+      hud.say1(new Dialogue(-1, null, "Game over..."));
+    }
+
+    if (player.health <= 0) {
+      player.update();
+      player.draw();
+      hud.update();
+    }
+  }
+
+  void keyDown() { 
+    //playSound(FOOTSTEPS);
+
+    if (key == 119) this.up = true; //w
+    else if (key == 115) this.down = true; //s
+    else if (key == 97) this.left = true; //a
+    else if (key == 100) this.right = true; //d
+
+    if (key == 114) {
+      if (currentWeap == 0) {
+        player.setWeapon(0);
+        currentWeap = 1;
+      } else {
+        currentWeap = 0;
+        player.setWeapon(1);
+      }
+    }
+
+
+    if (key == ' ' || key == ENTER || key == RETURN) {
+      this.space = true;
+    }
+    //Pausing
+    if (keyCode == 27) {
+      key = 0;
+      if (this.pause) this.pause = false;
+      else this.pause = true;
+    }
+  }
+  void keyUp() { 
+    if (key == 119) this.up = false; //w
+    else if (key == 115) this.down = false; //s
+    else if (key == 97) this.left = false; //a
+    else if (key == 100) this.right = false; //d
+
+    if (key == ' ' || key == ENTER || key == RETURN) {
+      //playSound(GUNSHOT); 
+      if (space) {
+        this.space = false;
+        if (!hud.interceptEnter() && !isPaused()) {
+          player.shoot(mouseX, mouseY, player.chargeTime, 10, player.reload, playerProjectile);
+
+          player.chargeTime = 0;
+        }
+      }
+    }
+  }
+}
+
+//Projectile class to describe the bullets
+class Projectile extends Unit {
+  int dmg; //How much damage
+  int charge; //How much "charge" this projectiles to determine its size and damage
+  int type; //What kind of projectile it is (Push back, pull, enemy color, boss color)
+  Unit owner; //Who shot this projectile
+  PVector v;
+
+  Projectile(int dmg, int charge, int type, Unit owner, PVector mouse, Camera camera) {
+    super(owner.pos.x/50, owner.pos.y/50, camera);
+    float size = 10*(0.03*charge);
+    if (size < 10) size = 10;
+    this.wSize = size;
+    this.hSize = size;
+    this.dmg = dmg;
+    this.charge = charge;
+    this.type = type;
+    this.moveSpeed = 10;
+    this.owner = owner;
+    PVector dir = new PVector();
+    mouse.sub(owner.tpos);
+    dir.set(mouse);
+    dir.normalize();
+    this.tpos.add(dir.x*(15+(owner.wSize/2)), dir.y*(15+(owner.hSize)), 0); 
+    dir.mult(this.moveSpeed);
+    this.tvel.set(dir);
+    
+  } 
+
+  //Draws different color projectile based on its type
+  void draw() {
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    if (type == 0) fill(255, 100, 100);
+    if (type == 1) fill(100, 100, 255);
+    if (type == 2) fill(255, 255, 255);
+    if (type == 4) fill(0, 0, 0);
+    if (0.06*charge == 6) {
+      strokeWeight(4);
+      stroke(255, 255, 255, 170);
+    }
+    
+    ellipse(0,0, this.wSize, this.hSize);
+    noStroke();
+    popMatrix();
+  }
+
+  //Overridden update because it moves differently from regular units
+  void update() {
+    if (camera.ifFocus(this)) {
+      this.pos.set(PVector.add(this.tpos, camera.pos));
+      this.vel.set(PVector.add(this.tvel, camera.vel));
+    }
+    else {
+      this.pos.set(this.tpos);
+      this.vel.set(this.tvel);
+    }
+    tpos.add(tvel);
+  }
+
+  //Shoots more projectile from this projectile at preset locations
+  void makeExplosion(ArrayList list) {
+    if (this.type == 4) this.type = 2;
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x + 1, this.tpos.y), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x - 1, this.tpos.y), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x, this.tpos.y + 1), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x, this.tpos.y - 1), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x + 1, this.tpos.y + 1), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x - 1, this.tpos.y - 1), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x + 1, this.tpos.y - 1), camera));
+    list.add(new Projectile(this.dmg/4, 1, this.type, this, new PVector(this.tpos.x - 1, this.tpos.y + 1), camera));
+  }
+
+
+  //Projectile hits a wall
+  void resolveBlock(ArrayList list) {
+    if (0.06*charge == 6) makeExplosion(list);
+    list.remove(this);
+  }
+  
+  //Projectile hits the Unit
+  void resolveCollision(Unit obj, ArrayList list) {
+
+    float multcharge = 0.06*charge;
+
+    if (multcharge < 1) multcharge = 1;
+    this.tvel.normalize();
+    this.tvel.mult(multcharge);
+    if (this.type == 1) this.tvel.mult(-1); 
+    if (multcharge == 6) this.dmg *= 2;
+    obj.isHit((Unit)this, this.dmg);
+
+    if (multcharge == 6) makeExplosion(list);
+
+    list.remove(this);
+  }
+}
+
+class State {
+  Boolean block; //If block is true, this instance of the state is removed
+  Boolean pause; //Pause this state
+
+    State() {
+    this.block = false;
+    this.pause = false;
+  }
+
+  //Methods to be overridden at subclass
+  void start() {
+  }
+  void update() {
+  }
+  void draw() {
+  }
+  void keyDown() {
+  }
+  void keyUp() {
+  }
+
+  boolean isBlocked() {
+    if (this.block) { 
+      return true;
+    }
+    return false;
+  }
+
+  boolean isPaused() {
+    if (this.pause) {
+      return true;
+    }
+    return false;
+  }
+}
+
+class Gameover extends State {
+
+  int bg1X = 0;
+  int bg2X = -800;
+  int fadeIn = 0;
+  int menuNum = 0;
+  boolean msg;
+  HUD hud = new HUD(null, null);
+
+  Gameover() { 
+    this.msg = false;
+  }
+
+  void update() {
+    image(asset.img.get(6), bg2X++, 0);
+    image(asset.img.get(6), bg1X++, 0);
+    image(asset.img.get(5), 0, 0);
+    image(asset.img.get(7), width/2-(539/2)-31, height/2-(179/2)-50); 
+    noTint();
+    if (!msg) {
+      hud.say1(new Dialogue(-1, null, "Thanks for playing!"));
+      msg = true;
+    }
+    hud.update();
+    if (bg1X >= 800) bg1X = -800;
+    if (bg2X >= 800) bg2X = -800;
+  }
+}
+
+class Title extends State {
+
+  int bg1X = 0;
+  int bg2X = -800;
+  int fadeIn = 0;
+  int menuNum = 0;
+  HUD hud = new HUD(null, null);
+
+  Title() { 
+    //this.block = true;
+  }
+
+
+  void update() {
+
+    image(asset.img.get(6), bg2X++, 0);
+    image(asset.img.get(6), bg1X++, 0);
+    image(asset.img.get(5), 0, 0);
+
+    tint(255, fadeIn); 
+    image(asset.img.get(7), width/2-(539/2)-31, height/2-(179/2)-50); 
+    noTint();
+    if (fadeIn != 255) { 
+      fadeIn += 3;
+    }
+
+    if (fadeIn >= 100) {
+      textAlign(CENTER);
+      textSize(24);
+      text("Start Game", 800/2, 600/2+100);
+      pushMatrix();
+      if (menuNum == 0) { 
+        translate(800/2-100, 600/2 + 85);
+      }
+      else { 
+        translate(800/2-100, 600/2 + 135);
+      }
+      scale(0.5);
+      triangle(0, 0, 25, 15, 0, 30);
+      popMatrix();
+      text("Instructions", 800/2, 600/2 + 150);
+      textAlign(LEFT);
+      hud.update();
+    }
+
+    if (bg1X >= 800) bg1X = -800;
+    if (bg2X >= 800) bg2X = -800;
+  }
+
+  void keyDown() {
+    if (hud.messageBox) hud.interceptEnter();
+    else {
+      if (key == CODED) {
+        if (keyCode == UP || keyCode == DOWN) {
+          if (menuNum == 0) menuNum++;
+          else menuNum--;
+        }
+      }
+    }
+    if (key == ' ' || key == ENTER || key == RETURN) {
+      if (hud.messageBox) hud.interceptEnter();
+      else {
+        if (menuNum == 0) this.block = true;
+        if (menuNum == 1) {  
+
+          ArrayList<Dialogue> about = new ArrayList<Dialogue>();
+          about.add(new Dialogue(-1, null, "Welcome to Black Hawks! \n\n (...)"));
+          about.add(new Dialogue(-1, "Controls", "Movement: <W> <A> <S> <D> / Mouse: (Aiming) \nShoot: <Space> / Charge: <Space> + hold \nSwitch Weapon: <R>"));
+
+          hud.say(about);
+        }
+      }
+    }
+  }
+}
+
+//Unit class to describe any Entity that is moveable
+class Unit extends Entity {
+  PVector acc, vel, tvel, tacc; //Used to calculate movement, tvel + tacc is used in case this Unit is the camera's focus
+  float health; //Health for this unit
+  int moveSpeed; //Movement speed
+  int weapon; //The current weapon
+  boolean up, down, left, right; //Which directin it is going
+  
+  Unit(float x, float y, Camera obj) { 
+    super(x*50, y*50, obj);
+    this.wSize = 50;
+    this.hSize = 50;
+    this.vel = new PVector();
+    this.tvel = new PVector();
+    this.acc = new PVector();
+    this.tacc = new PVector();
+    this.weapon = 0;
+    this.moveSpeed = 1;
+  }
+ 
+  void update() {
+    super.update(); 
+
+    //If this Unit is the camera's focused, add its temporary position and camera's offset to get 
+    if (camera.ifFocus(this)) {
+      this.pos.set(PVector.add(this.tpos, camera.pos));
+      this.vel.set(PVector.add(this.tvel, camera.vel));
+    }
+    else {
+      this.pos.set(this.tpos);
+      this.vel.set(this.tvel);
+    }
+    tvel.add(tacc);  
+    tvel.mult(0.8); 
+    tpos.add(tvel);
+    tacc.set(0, 0, 0);
+
+    //Shake timer
+    if (timer[5] > 0) {
+      if ( timer[5] % 4 == 1 || timer[5] % 4 == 2) this.tpos.add(5, 5, 0);
+      else this.tpos.sub(5, 5, 0);
+    }
+  } 
+
+  void resolveBlock() {
+
+    if (timer[1] > 0) return;
+
+    if (camera.ifFocus(this)) {
+      tvel.add(camera.getVel()); 
+      camera.pos.sub(camera.vel);
+      camera.vel.mult(-1);
+    }
+    tpos.sub(tvel);
+    tpos.sub(tacc);
+    tvel.mult(-1);
+
+    timer[0] = 0;
+    timer[1] = 10;
+  }
+  
+  
+  //Lets projectile class to interact with any Unit class
+  void isHit(Unit obj, int dmg) { }
+  void resolveCollision(Unit obj) { }
+
+  //Set the unit's weapon
+  void setWeapon(int w) {
+    this.weapon = w;
+  }
+
+  //Shoot if it is not bouncing back after any collision and reload is 0
+  void shoot(float x, float y, int charge, int damage, int reload, ArrayList list) {
+    if (timer[3] > 0 || timer[1] > 0 || timer[0] > 0 || this.health <= 0) return;
+
+    PVector mouseXY = new PVector(x, y);
+    list.add(new Projectile(damage, charge, this.weapon, this, mouseXY, camera));
+    timer[3] = reload;
+  }
+
+
+  //Move if not bouncing back from collision and not shaking
+  void move(float x, float y) {
+
+    if (timer[0] > 0 || timer[1] > 0 || timer[2] > 0 || timer[5] > 0) return; 
+
+    up = false;
+    down = false;
+    left = false;
+    right = false;
+
+    if (y > 0) up = true;
+    if (y < 0) down = true;
+    if (x < 0) right = true;
+    if (x > 0) left = true;
+
+    x = x * moveSpeed;
+    y = y * moveSpeed;
+
+    if (tpos.y <= 150 && y < 0 || 
+      tpos.y >= height-150 && y > 0 || 
+      tpos.x <= 150 && x < 0 || 
+      tpos.x >= width-150 && x > 0) {  
+      if (camera.focus == this) {
+        camera.move(x, y);
+        return;
+      }
+    }
+
+    tacc.add(new PVector(x, y));
+  }
+}
+
+//Widget class - the immovable interactable objects in the game
+
+class Widget extends Entity {
+  boolean on; 
+
+  Widget(float x, float y, Camera camera) {
+    super((x*50)+25, (y*50)+25, camera);
+    this.wSize = 50;
+    this.hSize = 50;
+    this.on = false;
+  }
+  void resolveCollision(boolean n) {
+  }
+  void resolveCollision(boolean n, Entity obj) {
+  }
+  void draw() {
+  }
+  void update() {
+  }
+}
+
+//The portal to move onto the next state
+class Portal extends Widget {
+  HUD hud;
+  State state;
+
+  Portal(float x, float y, Camera camera, State state) {
+    super(x, y, camera);
+    this.state = state;
+  }
+
+  void draw() {
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    fill(50, 100, 190);
+    rect(-25, -25, 50, 50);
+    popMatrix();
+  }
+
+  void resolveCollision(boolean n) {
+    //Player moved onto tile and is not already on it
+    if (n && !this.on) {
+      this.on = true;
+      state.block = true;
+    }
+    //Player moves out of tile.. 
+
+    if (!n && this.on) {
+      this.on = false;
+    }
+  }
+}
+
+//Cube that will interact with triggers
+class Cube extends Unit {
+
+  Cube(float x, float y, Camera camera) {
+    super(x, y, camera);
+  }
+
+  void draw() {
+    pushMatrix();
+    translate2(this.tpos.x, this.tpos.y);
+    image(asset.img.get(10), -wSize/2, -hSize/2, 50, 50);
+    popMatrix();
+  }
+
+  void resolveCollision(Unit obj) {
+    if (this.vel.mag() > obj.vel.mag()) {
+      if (this.timer[0] == 0) {
+        this.tpos.sub(tvel);
+        this.tvel.mult(-1);
+        this.timer[0] = 15;
+        this.timer[1] = 0;
+      }
+    }
+    else {
+      if (obj.timer[0] == 0) {
+        if (camera.ifFocus(obj)) {
+          obj.tvel.add(camera.getVel()); 
+          camera.pos.sub(camera.vel);
+          camera.vel.mult(-1);
+        }
+        obj.tpos.sub(obj.vel);
+        obj.tpos.sub(obj.tacc);
+        obj.tvel.mult(-1);
+        obj.timer[0] = 15;
+        obj.timer[1] = 0;
+      }
+    }
+  }
+
+  void isHit(Unit obj, int dmg) {
+    if (this.timer[0] > 0 || this.timer[1] > 0 || this.timer[2] > 0) return;
+    this.move(obj.tvel.x*3, obj.tvel.y*3);
+    this.timer[2] = 10;
+  }
+}
+
+//Trigger that opens door
+class Trigger extends Widget {
+  HUD hud;
+  ArrayList<Door> d = new ArrayList<Door>();
+  Entity onObj; //the entity that is on it
+
+  Trigger(float x, float y, Camera camera, ArrayList doors, HUD h) {
+    super(x, y, camera);
+    this.hud = h;
+    this.wSize = 30;
+    this.hSize = 30;
+    d.addAll(doors);
+  }
+
+  void draw() {
+    pushMatrix(); 
+    translate2(tpos.x, tpos.y);
+    image(asset.img.get(9), -18, -18, 36, 36);
+    popMatrix();
+  }
+
+  void resolveCollision(boolean n, Entity o) {
+    //Player moved onto tile and is not already on it
+
+    if (n && !this.on) {
+      this.on = true;
+      this.onObj = o;
+      for (int i=0; i<d.size(); i++) {
+        camera.queue(d.get(i));
+        d.get(i).unlock();
+        hud.say1(new Dialogue(100, null, "Switch activated!  \n\n<Space> to skip."));
+      }
+    }
+    //Player moves out of tile.. 
+    if (!n && this.on  && o == onObj) {
+
+      onObj = null;
+      this.on = false;
+
+      for (int i=0; i<d.size(); i++) {
+        d.get(i).lock();
+      }
+    }
+  }
+}
+
+
+//Door that changes wall to moveable tile
+class Door extends Widget {
+  boolean open;
+  int timer;
+  HUD hud;
+  Trigger t;
+  int tileX;
+  int tileY;
+  int stage;
+
+  Door(float x, float y, Camera camera, HUD hud, int stage) {
+    super(x, y, camera);
+    tileX = int(x);
+    tileY = int(y);
+    this.t = t;
+    this.hud = hud;
+    this.timer = 0;
+    this.stage = stage;
+    open = false;
+  }
+
+  void update() {
+    if (open && timer < 50) timer++;
+    if (!open && timer != 0) timer--;
+  }
+
+  void draw() {
+    pushMatrix(); 
+    if (level[stage][tileY][tileX+1] == 1)  translate2(tpos.x + timer, tpos.y);
+    else if (level[stage][tileY][tileX-1] == 1) translate2(tpos.x - timer, tpos.y);
+    else if (level[stage][tileY+1][tileX] == 1)  translate2(tpos.x, tpos.y + timer);
+    else if (level[stage][tileY-1][tileX] == 1)  translate2(tpos.x, tpos.y - timer);
+
+    image(asset.img.get(8), -wSize/2, -hSize/2);
+    popMatrix();
+  }
+  void unlock() {
+    this.open = true;
+    level[stage][tileY][tileX] = 0;
+  }
+  void lock() {
+    this.open = false;
+    level[stage][tileY][tileX] = 2;
+  }
+
+  void resolveCollision(boolean n) {
+    //Player moved onto tile and is not already on it
+    if (n && !this.on) {
+      this.on = true;
+      if (!open) hud.say1(new Dialogue(100, null, "This door is locked..."));
+    }
+    //Player moves out of tile.. 
+
+    if (!n && this.on) {
+      this.on = false;
+    }
+  }
+}
+
+
 
     </script>
     <canvas id="sketch" style="border: 1px solid black;"></canvas>
